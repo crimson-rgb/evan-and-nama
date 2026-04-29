@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Evan & Nama</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #ffffff;
+      width: 100%;
+      height: 100vh;
+      overflow: hidden;
+    }
+    #wj-curtain {
+      position: fixed;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      z-index: 9999;
+      pointer-events: all;
+      display: block;
+    }
+    #backdrop {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 1.4s ease;
+      background: #ffffff;
+      z-index: 1;
+    }
+    #backdrop.visible { opacity: 1; pointer-events: all; }
+    .eyebrow {
+      font-family: Georgia, serif;
+      font-size: 13px;
+      letter-spacing: 6px;
+      color: #690e1a;
+      text-transform: uppercase;
+      margin-bottom: 4px;
+    }
+    .names {
+      font-family: Georgia, serif;
+      font-style: italic;
+      font-size: clamp(52px, 11vw, 88px);
+      color: #690e1a;
+      line-height: 1.1;
+    }
+    .divider {
+      width: 48px;
+      height: 1px;
+      background: #690e1a;
+      opacity: 0.35;
+      margin: 10px 0;
+    }
+    .tagline {
+      font-family: Georgia, serif;
+      font-size: 14px;
+      letter-spacing: 4px;
+      color: #690e1a;
+      opacity: 0.7;
+      text-transform: uppercase;
+    }
+    .enter-btn {
+      margin-top: 32px;
+      padding: 13px 40px;
+      border: 1px solid #690e1a;
+      border-radius: 100px;
+      background: transparent;
+      color: #690e1a;
+      font-family: Georgia, serif;
+      font-size: 13px;
+      letter-spacing: 2px;
+      cursor: pointer;
+      transition: background 0.3s, color 0.3s;
+      text-decoration: none;
+      display: inline-block;
+      text-transform: uppercase;
+    }
+    .enter-btn:hover {
+      background: #690e1a;
+      color: #ffffff;
+    }
+  </style>
+</head>
+<body>
+
+  <div id="backdrop">
+    <p class="eyebrow">the wedding of</p>
+    <p class="names">Evan &amp; Nama</p>
+    <div class="divider"></div>
+    <p class="tagline">you're invited</p>
+    <a class="enter-btn" href="https://withjoy.com/evan-and-nama">open invitation</a>
+  </div>
+
+  <canvas id="wj-curtain"></canvas>
+
+  <script>
+  (function () {
+    const canvas = document.getElementById('wj-curtain');
+    const ctx = canvas.getContext('2d');
+    let W, H;
+
+    function resize() {
+      W = canvas.width = window.innerWidth;
+      H = canvas.height = window.innerHeight;
+    }
+    resize();
+    window.addEventListener('resize', resize);
+
+    let startTime = null;
+    const DURATION = 2000;
+    const DELAY = 300;
+
+    function ease(t) {
+      // ease in out quart — smooth but decisive
+      return t < 0.5 ? 8*t*t*t*t : 1 - Math.pow(-2*t+2,4)/2;
+    }
+
+    function clamp(v) { return Math.min(255, Math.max(0, Math.round(v))); }
+
+    /*
+      Draws one curtain side as a series of vertical fabric folds.
+      Each fold is a rounded peak-to-valley rendered with 3 gradient strips
+      (highlight | mid | shadow) so it reads as a smooth cylindrical tube.
+      All strips share identical top Y and bottom Y — zero gaps possible.
+    */
+    function drawCurtain(p, side) {
+      const ep = ease(p);
+
+      // Panel occupies its half of the screen
+      const panelW = W / 2;
+      // Leading edge offset — both sides pull equally by the same amount
+      const pullAmount = ep * (panelW + 100);
+      const offsetX = side === 'left' ? -pullAmount : pullAmount;
+
+      // Origin of this panel in screen space
+      const originX = side === 'left' ? 0 : W / 2;
+
+      // Number of folds — fewer = cleaner, more theatrical
+      const NUM_FOLDS = 4;
+      const foldW = panelW / NUM_FOLDS;
+
+      // Vertical drape: subtle wave that decreases as curtain opens
+      const drapeAmp  = 12 * (1 - ep * 0.7);
+      const drapeFreq = 1.5; // cycles across height
+
+      function getWaveX(normX, yFrac) {
+        // normX 0..1 within a fold, yFrac 0..1 down the panel
+        // Sine wave along Y gives fabric drape
+        return Math.sin(yFrac * Math.PI * drapeFreq) * drapeAmp * Math.sin(normX * Math.PI);
+      }
+
+      // Draw each fold as 3 vertical strips: left-shadow | center-highlight | right-shadow
+      // This mimics the cylindrical shading in the reference image
+      for (let f = 0; f < NUM_FOLDS; f++) {
+        const foldLeft  = originX + f * foldW + offsetX;
+        const foldRight = foldLeft + foldW;
+
+        // Skip if entirely off screen
+        if (foldRight < 0 || foldLeft > W) continue;
+
+        // Gather effect: folds compress slightly as curtain bunches
+        // The fold closest to the leading edge pulls most
+        const foldRelPos = side === 'left'
+          ? (NUM_FOLDS - 1 - f) / (NUM_FOLDS - 1)  // 0=outer, 1=leading
+          : f / (NUM_FOLDS - 1);
+        const gatherShift = ep * foldRelPos * foldW * 0.18;
+        const gatherSign  = side === 'left' ? -1 : 1;
+
+        const fl = foldLeft  + gatherSign * gatherShift;
+        const fr = foldRight + gatherSign * gatherShift;
+        const fm = (fl + fr) / 2;
+
+        // --- Strip definitions ---
+        // Each strip: [x0, x1, lightDelta]
+        // lightDelta: positive = brighter (highlight), negative = darker (shadow)
+        const strips = [
+          { x0: fl,       x1: fl + (fm-fl)*0.3, ld: -0.28 },   // left shadow
+          { x0: fl + (fm-fl)*0.3, x1: fm - (fm-fl)*0.1, ld: 0.18 },  // left highlight
+          { x0: fm - (fm-fl)*0.1, x1: fm + (fr-fm)*0.1, ld: 0.28 },  // center peak
+          { x0: fm + (fr-fm)*0.1, x1: fr - (fr-fm)*0.3, ld: 0.12 },  // right highlight
+          { x0: fr - (fr-fm)*0.3, x1: fr,       ld: -0.32 },   // right shadow
+        ];
+
+        const SEGS = 30;
+
+        for (const strip of strips) {
+          const { x0, x1, ld } = strip;
+          if (x1 < 0 || x0 > W) continue;
+
+          // Build left and right edge points with drape wave
+          const leftPts  = [];
+          const rightPts = [];
+          const normX0 = (x0 - fl) / (fr - fl);
+          const normX1 = (x1 - fl) / (fr - fl);
+
+          for (let s = 0; s <= SEGS; s++) {
+            const yf = s / SEGS;
+            const y  = yf * H;
+            const wL = getWaveX(normX0, yf);
+            const wR = getWaveX(normX1, yf);
+            leftPts.push({ x: x0 + wL, y });
+            rightPts.push({ x: x1 + wR, y });
+          }
+
+          // Path
+          ctx.beginPath();
+          ctx.moveTo(leftPts[0].x, 0);
+          for (let s = 1; s <= SEGS; s++) {
+            const a = leftPts[s-1], b = leftPts[s];
+            ctx.quadraticCurveTo(a.x, a.y, (a.x+b.x)/2, (a.y+b.y)/2);
+          }
+          ctx.lineTo(rightPts[SEGS].x, H);
+          for (let s = SEGS-1; s >= 0; s--) {
+            const a = rightPts[s+1], b = rightPts[s];
+            ctx.quadraticCurveTo(a.x, a.y, (a.x+b.x)/2, (a.y+b.y)/2);
+          }
+          ctx.closePath();
+
+          // Color
+          const baseR = 180, baseG = 18, baseB = 30;
+          const r = clamp(baseR + ld * 160);
+          const g = clamp(baseG + ld * 30);
+          const b = clamp(baseB + ld * 30);
+          const rD = clamp(baseR + (ld - 0.06) * 160);
+          const gD = clamp(baseG + (ld - 0.06) * 30);
+          const bD = clamp(baseB + (ld - 0.06) * 30);
+
+          // Slight top-to-bottom darkening for depth
+          const grad = ctx.createLinearGradient(0, 0, 0, H);
+          grad.addColorStop(0,   `rgb(${r},${g},${b})`);
+          grad.addColorStop(1,   `rgb(${rD},${gD},${bD})`);
+          ctx.fillStyle = grad;
+          ctx.fill();
+
+          // Horizontal sheen gradient over the strip
+          const hGrad = ctx.createLinearGradient(x0, 0, x1, 0);
+          const sheenAlpha = Math.max(0, ld) * 0.09;
+          hGrad.addColorStop(0,   `rgba(255,200,200,0)`);
+          hGrad.addColorStop(0.5, `rgba(255,220,220,${sheenAlpha})`);
+          hGrad.addColorStop(1,   `rgba(255,200,200,0)`);
+          ctx.fillStyle = hGrad;
+          ctx.fill();
+        }
+      }
+
+      // Cast shadow from leading edge inward
+      const leadX = originX + offsetX + (side === 'left' ? panelW : 0);
+      const shadowW = 30;
+      if (side === 'left') {
+        const sg = ctx.createLinearGradient(leadX - shadowW, 0, leadX, 0);
+        sg.addColorStop(0, 'rgba(20,0,4,0)');
+        sg.addColorStop(1, 'rgba(20,0,4,0.35)');
+        ctx.fillStyle = sg;
+        ctx.fillRect(leadX - shadowW, 0, shadowW, H);
+      } else {
+        const sg = ctx.createLinearGradient(leadX, 0, leadX + shadowW, 0);
+        sg.addColorStop(0, 'rgba(20,0,4,0.35)');
+        sg.addColorStop(1, 'rgba(20,0,4,0)');
+        ctx.fillStyle = sg;
+        ctx.fillRect(leadX, 0, shadowW, H);
+      }
+    }
+
+    // Slim rod — dark, no gold
+    function drawRod() {
+      const rodH = 7;
+      ctx.fillStyle = '#1a0305';
+      ctx.fillRect(0, 0, W, rodH);
+
+      // Finials
+      [10, W-10].forEach(tx => {
+        ctx.fillStyle = '#1a0305';
+        ctx.beginPath();
+        ctx.arc(tx, rodH/2, 10, 0, Math.PI*2);
+        ctx.fill();
+        // subtle inner highlight
+        ctx.fillStyle = '#690e1a';
+        ctx.beginPath();
+        ctx.arc(tx, rodH/2 - 1, 5, 0, Math.PI*2);
+        ctx.fill();
+      });
+    }
+
+    function frame(ts) {
+      if (!startTime) startTime = ts;
+      const elapsed = ts - startTime - DELAY;
+      const raw = elapsed < 0 ? 0 : Math.min(1, elapsed / DURATION);
+
+      ctx.clearRect(0, 0, W, H);
+
+      // White base so curtain edges are clean
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, W, H);
+
+      drawCurtain(raw, 'left');
+      drawCurtain(raw, 'right');
+      drawRod();
+
+      if (raw < 1) {
+        requestAnimationFrame(frame);
+      } else {
+        canvas.style.pointerEvents = 'none';
+        // fade out canvas then reveal text
+        canvas.style.transition = 'opacity 0.8s ease';
+        canvas.style.opacity = '0';
+        setTimeout(() => {
+          canvas.style.display = 'none';
+          document.getElementById('backdrop').classList.add('visible');
+        }, 800);
+      }
+    }
+
+    requestAnimationFrame(frame);
+  })();
+  </script>
+</body>
+</html>
